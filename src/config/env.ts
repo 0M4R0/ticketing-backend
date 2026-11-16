@@ -10,8 +10,8 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL: z.string().min(1),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive(),
   ORDER_TTL_MINUTES: z.coerce.number().int().positive(),
-  STRIPE_SECRET_KEY: z.string().min(1),
-  STRIPE_WEBHOOK_SECRET: z.string().min(1),
+  // STRIPE_SECRET_KEY: z.string().min(1),
+  // STRIPE_WEBHOOK_SECRET: z.string().min(1),
 });
 
 const result = envSchema.safeParse(process.env);
