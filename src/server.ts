@@ -5,6 +5,7 @@ import helmet from "helmet";
 import { closeDatabase } from "./config/database";
 import { env } from "./config/env";
 import { errorHandler } from "./middleware/error.middleware";
+import authRoutes from "./modules/auth/auth.routes";
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(cookieParser());
 app.get("/health", (_request, response) => {
   response.json({ ok: true });
 });
+app.use("/api/auth", authRoutes);
 
 app.use(errorHandler);
 
