@@ -9,11 +9,28 @@ import {
 } from "./auth.controller";
 import { loginSchema, registerSchema } from "./auth.schema";
 
+import {
+  registerLimiter,
+  loginLimiter,
+  refreshLimiter,
+  logoutLimiter,
+} from "./auth.rate-limit";
+
 const router = Router();
 
-router.post("/register", validate(z.object({ body: registerSchema })), registerController);
-router.post("/login", validate(z.object({ body: loginSchema })), loginController);
-router.post("/refresh", refreshController);
-router.post("/logout", logoutController);
+router.post(
+  "/register",
+  validate(z.object({ body: registerSchema })),
+  registerLimiter,
+  registerController,
+);
+router.post(
+  "/login",
+  validate(z.object({ body: loginSchema })),
+  loginLimiter,
+  loginController,
+);
+router.post("/refresh", refreshLimiter, refreshController);
+router.post("/logout", logoutLimiter, logoutController);
 
 export default router;
