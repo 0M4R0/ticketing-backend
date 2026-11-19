@@ -1,4 +1,8 @@
 import type { Request, Response } from "express";
+
+import { UAParser } from "ua-parser-js";
+
+import { AUTH_API_PATH } from "../../config/api";
 import { env } from "../../config/env";
 import { UnauthorizedError } from "../../utils/errors";
 import { login, logout, refresh, register } from "./auth.services";
@@ -8,7 +12,7 @@ const refreshCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
   secure: env.NODE_ENV === "production",
-  path: "/api/auth",
+  path: AUTH_API_PATH,
 };
 
 export async function registerController(
@@ -23,9 +27,16 @@ export async function loginController(
   req: Request,
   res: Response,
 ): Promise<void> {
+  // Get the device
+  const parser = new UAParser(req.headers["user-agent"]);
+  const deviceName =
+    parser.getDevice().model || parser.getBrowser().name || "Unknown";
+
+  // Perform login
   const result = await login(req.body, {
     ip: req.ip,
     userAgent: req.get("user-agent"),
+    deviceName,
   });
 
   res.cookie(refreshCookieName, result.refreshToken, refreshCookieOptions);

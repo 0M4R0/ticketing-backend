@@ -53,6 +53,14 @@ function createRefreshToken(): string {
   return randomBytes(48).toString("hex");
 }
 
+// Limit the length of text fields to prevent database errors and potential abuse.
+function limitText(
+  value: string | undefined,
+  maxLength: number,
+): string | null {
+  return value?.slice(0, maxLength) ?? null;
+}
+
 export function createAccessToken(
   user: Pick<UserRecord, "id" | "role">,
   sessionId: number,
@@ -154,9 +162,9 @@ export async function login(input: LoginInput, meta: LoginMeta = {}) {
       .run(
         user.id,
         refreshTokenHash,
-        meta.ip ?? null,
-        meta.userAgent ?? null,
-        meta.deviceName ?? null,
+        limitText(meta.ip, 45),
+        limitText(meta.userAgent, 500),
+        limitText(meta.deviceName, 100),
         expiresAt,
       );
 
@@ -177,10 +185,8 @@ export async function login(input: LoginInput, meta: LoginMeta = {}) {
     accessToken: createAccessToken(user, sessionId),
     refreshToken,
     user: {
-      id: user.id,
       name: user.name,
       email: user.email,
-      role: user.role,
     },
   };
 }
