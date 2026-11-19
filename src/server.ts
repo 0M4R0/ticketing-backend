@@ -13,6 +13,8 @@ import { errorHandler } from "./middleware/error.middleware";
 import authRoutes from "./modules/auth/auth.routes";
 
 const app = express();
+app.set("trust proxy", 3);
+
 const apiRouter = express.Router();
 const openApiYaml = readFileSync(
   path.resolve(process.cwd(), "docs/openapi.yaml"),
