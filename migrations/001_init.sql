@@ -10,7 +10,7 @@
 
 -- ---------- USERS & SESSIONS ----------
 CREATE TABLE users (
-  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  id                 TEXT PRIMARY KEY NOT NULL,
   name               TEXT NOT NULL,
   email              TEXT NOT NULL,
   password_hash      TEXT NOT NULL,
@@ -29,8 +29,8 @@ CREATE TABLE users (
 CREATE UNIQUE INDEX ux_users_email_active ON users(email COLLATE NOCASE) WHERE deleted_at IS NULL;
 
 CREATE TABLE user_sessions (
-  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id                 TEXT PRIMARY KEY NOT NULL,
+  user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   refresh_token_hash TEXT NOT NULL UNIQUE,
   ip_address         TEXT,
   user_agent         TEXT,
@@ -44,7 +44,7 @@ CREATE INDEX ix_sessions_user_active ON user_sessions(user_id) WHERE revoked_at 
 
 -- ---------- CATALOG ----------
 CREATE TABLE event_type (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  id          TEXT PRIMARY KEY NOT NULL,
   name        TEXT NOT NULL UNIQUE,
   description TEXT,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -52,7 +52,7 @@ CREATE TABLE event_type (
 );
 
 CREATE TABLE places (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  id         TEXT PRIMARY KEY NOT NULL,
   name       TEXT NOT NULL,
   address    TEXT,
   city       TEXT,
@@ -62,8 +62,8 @@ CREATE TABLE places (
 );
 
 CREATE TABLE seats (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  place_id    INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+  id          TEXT PRIMARY KEY NOT NULL,
+  place_id    TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE,
   section     TEXT NOT NULL,
   row         TEXT NOT NULL,
   seat_number TEXT NOT NULL,
@@ -73,10 +73,10 @@ CREATE TABLE seats (
 );
 
 CREATE TABLE events (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  organizer_id  INTEGER NOT NULL REFERENCES users(id),
-  place_id      INTEGER NOT NULL REFERENCES places(id),
-  event_type_id INTEGER NOT NULL REFERENCES event_type(id),
+  id            TEXT PRIMARY KEY NOT NULL,
+  organizer_id  TEXT NOT NULL REFERENCES users(id),
+  place_id      TEXT NOT NULL REFERENCES places(id),
+  event_type_id TEXT NOT NULL REFERENCES event_type(id),
   title         TEXT NOT NULL,
   description   TEXT,
   image_url     TEXT,
@@ -93,8 +93,8 @@ CREATE INDEX ix_events_status_start ON events(status, start_date);
 CREATE INDEX ix_events_organizer    ON events(organizer_id);
 
 CREATE TABLE ticket_type (
-  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id           INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  id                 TEXT PRIMARY KEY NOT NULL,
+  event_id           TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   name               TEXT NOT NULL,
   description        TEXT,
   admission_type     TEXT NOT NULL CHECK (admission_type IN ('no assigned seat','numbered seat')),
@@ -112,12 +112,13 @@ CREATE INDEX ix_ticket_type_event ON ticket_type(event_id);
 
 -- Which seats belong to which ticket tier for a given event.
 CREATE TABLE ticket_type_seats (
-  ticket_type_id INTEGER NOT NULL REFERENCES ticket_type(id) ON DELETE CASCADE,
-  event_id       INTEGER NOT NULL REFERENCES events(id)      ON DELETE CASCADE,
-  seat_id        INTEGER NOT NULL REFERENCES seats(id),
+  id             TEXT PRIMARY KEY NOT NULL,
+  ticket_type_id TEXT NOT NULL REFERENCES ticket_type(id) ON DELETE CASCADE,
+  event_id       TEXT NOT NULL REFERENCES events(id)      ON DELETE CASCADE,
+  seat_id        TEXT NOT NULL REFERENCES seats(id),
   created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  PRIMARY KEY (ticket_type_id, seat_id),
+  UNIQUE (ticket_type_id, seat_id),
   UNIQUE (event_id, seat_id)          -- a seat can only be in one tier per event
 );
 
@@ -132,9 +133,9 @@ END;
 
 -- ---------- ORDERS & PAYMENTS ----------
 CREATE TABLE orders (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id    INTEGER NOT NULL REFERENCES users(id),
-  event_id   INTEGER NOT NULL REFERENCES events(id),
+  id         TEXT PRIMARY KEY NOT NULL,
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  event_id   TEXT NOT NULL REFERENCES events(id),
   total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
   status     TEXT NOT NULL DEFAULT 'pending'
              CHECK (status IN ('pending','confirmed','cancelled','refunded')),
@@ -148,9 +149,9 @@ CREATE INDEX ix_orders_user ON orders(user_id);
 CREATE INDEX ix_orders_pending_expiry ON orders(expires_at) WHERE status = 'pending';
 
 CREATE TABLE order_items (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  order_id        INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  ticket_type_id  INTEGER NOT NULL REFERENCES ticket_type(id),
+  id              TEXT PRIMARY KEY NOT NULL,
+  order_id        TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  ticket_type_id  TEXT NOT NULL REFERENCES ticket_type(id),
   quantity        INTEGER NOT NULL CHECK (quantity > 0),
   unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
   subtotal_cents  INTEGER NOT NULL CHECK (subtotal_cents = quantity * unit_price_cents),
@@ -160,8 +161,8 @@ CREATE TABLE order_items (
 CREATE INDEX ix_order_items_order ON order_items(order_id);
 
 CREATE TABLE user_payment_methods (
-  id                         INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id                    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id                         TEXT PRIMARY KEY NOT NULL,
+  user_id                    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider                   TEXT NOT NULL DEFAULT 'stripe',
   provider_payment_method_id TEXT NOT NULL,           -- pm_xxx
   brand                      TEXT,
@@ -182,9 +183,9 @@ CREATE UNIQUE INDEX ux_upm_one_default ON user_payment_methods(user_id)
   WHERE is_default = 1 AND deleted_at IS NULL;
 
 CREATE TABLE payments (
-  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-  order_id                INTEGER NOT NULL REFERENCES orders(id),
-  user_payment_method_id  INTEGER REFERENCES user_payment_methods(id),
+  id                      TEXT PRIMARY KEY NOT NULL,
+  order_id                TEXT NOT NULL REFERENCES orders(id),
+  user_payment_method_id  TEXT REFERENCES user_payment_methods(id),
   amount_cents            INTEGER NOT NULL CHECK (amount_cents >= 0),
   refunded_amount_cents   INTEGER NOT NULL DEFAULT 0,
   currency                TEXT NOT NULL DEFAULT 'usd',
@@ -209,10 +210,10 @@ CREATE UNIQUE INDEX ux_payments_provider_id ON payments(provider, provider_payme
 -- Created as 'reserved' INSIDE the BEGIN IMMEDIATE lock transaction (this is what
 -- holds the seat while payment is pending). Promoted to 'active' by the webhook.
 CREATE TABLE tickets (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  order_item_id INTEGER NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
-  event_id      INTEGER NOT NULL REFERENCES events(id),
-  seat_id       INTEGER REFERENCES seats(id),          -- NULL for 'no assigned seat'
+  id            TEXT PRIMARY KEY NOT NULL,
+  order_item_id TEXT NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
+  event_id      TEXT NOT NULL REFERENCES events(id),
+  seat_id       TEXT REFERENCES seats(id),          -- NULL for 'no assigned seat'
   unique_code   TEXT NOT NULL UNIQUE,                  -- UUID, goes in the QR
   status        TEXT NOT NULL DEFAULT 'reserved'
                 CHECK (status IN ('reserved','active','used','cancelled')),

@@ -2,7 +2,7 @@ import { db } from "../../../config/database";
 import { NotFoundError } from "../../../utils/errors";
 
 type UserSessionRow = {
-  id: number;
+  id: string;
   ip_address: string | null;
   user_agent: string | null;
   device_name: string | null;
@@ -12,7 +12,7 @@ type UserSessionRow = {
 };
 
 export type UserSession = {
-  id: number;
+  id: string;
   ipAddress: string | null;
   userAgent: string | null;
   deviceName: string | null;
@@ -23,8 +23,8 @@ export type UserSession = {
 };
 
 export function getActiveSessions(
-  userId: number,
-  currentSessionId: number,
+  userId: string,
+  currentSessionId: string,
 ): UserSession[] {
   const rows = db
     .prepare(
@@ -52,7 +52,7 @@ export function getActiveSessions(
   }));
 }
 
-export function revokeSession(userId: number, sessionId: number): void {
+export function revokeSession(userId: string, sessionId: string): void {
   const result = db
     .prepare(
       `
@@ -68,7 +68,7 @@ export function revokeSession(userId: number, sessionId: number): void {
   if (result.changes === 0) throw new NotFoundError("Session not found");
 }
 
-export function revokeAllSessions(userId: number): void {
+export function revokeAllSessions(userId: string): void {
   db.prepare(
     `
     UPDATE user_sessions

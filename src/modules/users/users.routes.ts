@@ -28,7 +28,7 @@ router.delete(
   "/me/sessions/:sessionId",
   validate(
     z.object({
-      params: z.object({ sessionId: z.coerce.number().int().positive() }),
+      params: z.object({ sessionId: z.uuid() }),
     }),
   ),
   revokeCurrentUserSessionController,

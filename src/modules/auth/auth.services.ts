@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 
 import { db } from "../../config/database";
@@ -15,7 +15,7 @@ type UserRole = "user" | "admin" | "organizador";
 type UserStatus = "active" | "banned";
 
 type UserRecord = {
-  id: number;
+  id: string;
   name: string;
   email: string;
   password_hash: string;
@@ -30,8 +30,8 @@ type LoginMeta = {
 };
 
 type RefreshSession = {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   role: UserRole;
 };
 
@@ -63,7 +63,7 @@ function limitText(
 
 export function createAccessToken(
   user: Pick<UserRecord, "id" | "role">,
-  sessionId: number,
+  sessionId: string,
 ): string {
   return jwt.sign(
     {
@@ -80,19 +80,19 @@ export function createAccessToken(
 
 export async function register(input: RegisterInput) {
   const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
+  const id = randomUUID();
 
   try {
-    const result = db
-      .prepare(
+    db.prepare(
         `
-        INSERT INTO users (name, email, password_hash, phone)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO users (id, name, email, password_hash, phone)
+        VALUES (?, ?, ?, ?, ?)
       `,
       )
-      .run(input.name, input.email, passwordHash, input.phone ?? null);
+      .run(id, input.name, input.email, passwordHash, input.phone ?? null);
 
     return {
-      id: Number(result.lastInsertRowid),
+      id,
       name: input.name,
       email: input.email,
     };
@@ -145,10 +145,11 @@ export async function login(input: LoginInput, meta: LoginMeta = {}) {
 
   // Keep session creation and last-login update atomic.
   const createSession = db.transaction(() => {
-    const result = db
-      .prepare(
+    const id = randomUUID();
+    db.prepare(
         `
         INSERT INTO user_sessions (
+          id,
           user_id,
           refresh_token_hash,
           ip_address,
@@ -156,10 +157,11 @@ export async function login(input: LoginInput, meta: LoginMeta = {}) {
           device_name,
           expires_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       )
       .run(
+        id,
         user.id,
         refreshTokenHash,
         limitText(meta.ip, 45),
@@ -176,7 +178,7 @@ export async function login(input: LoginInput, meta: LoginMeta = {}) {
     `,
     ).run(createdAt, createdAt, user.id);
 
-    return Number(result.lastInsertRowid);
+    return id;
   });
 
   const sessionId = createSession.immediate();

@@ -9,7 +9,7 @@ type Profile = {
   createdAt: string;
 };
 
-function findProfile(userId: number): Profile | undefined {
+function findProfile(userId: string): Profile | undefined {
   const row = db
     .prepare(
       `
@@ -32,18 +32,18 @@ function findProfile(userId: number): Profile | undefined {
   };
 }
 
-export function getProfile(userId: number): Profile {
+export function getProfile(userId: string): Profile {
   const profile = findProfile(userId);
   if (!profile) throw new NotFoundError("User not found");
   return profile;
 }
 
 export function updateProfile(
-  userId: number,
+  userId: string,
   input: UpdateProfileInput,
 ): Profile {
   const assignments: string[] = [];
-  const values: (string | null | number)[] = [];
+  const values: (string | null)[] = [];
 
   if (input.name !== undefined) {
     assignments.push("name = ?");

@@ -6,7 +6,7 @@ import {
   revokeSession,
 } from "./sessions.services";
 
-function authenticatedUserId(req: Request): number {
+function authenticatedUserId(req: Request): string {
   if (!req.user) throw new UnauthorizedError("Authentication is required");
   return req.user.id;
 }
@@ -23,7 +23,7 @@ export function revokeCurrentUserSessionController(
   req: Request,
   res: Response,
 ): void {
-  revokeSession(authenticatedUserId(req), Number(req.params.sessionId));
+  revokeSession(authenticatedUserId(req), req.params.sessionId as string);
   res.status(204).end();
 }
 

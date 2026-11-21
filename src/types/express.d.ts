@@ -1,7 +1,7 @@
 type AuthenticatedUser = {
-  id: number;
+  id: string;
   role: "user" | "admin" | "organizador";
-  sessionId: number;
+  sessionId: string;
 };
 
 declare global {

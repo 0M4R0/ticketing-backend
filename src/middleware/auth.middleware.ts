@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
+import { z } from "zod";
 import { env } from "../config/env";
 import { db } from "../config/database";
 import { UnauthorizedError } from "../utils/errors";
@@ -7,9 +8,9 @@ import { UnauthorizedError } from "../utils/errors";
 type UserRole = "user" | "admin" | "organizador";
 
 type AuthRecord = {
-  id: number;
+  id: string;
   role: UserRole;
-  session_id: number;
+  session_id: string;
 };
 
 const VALID_ROLES = new Set<UserRole>(["user", "admin", "organizador"]);
@@ -25,8 +26,8 @@ export function requireAuth(
   }
   const token = authorization.slice("Bearer ".length);
 
-  let userId: number;
-  let sessionId: number;
+  let userId: string;
+  let sessionId: string;
 
   // 1. Verify JWT
   try {
@@ -35,22 +36,15 @@ export function requireAuth(
     // Validate claims
     if (
       typeof claims.sub !== "string" ||
-      typeof claims.sessionId !== "number"
+      !z.string().uuid().safeParse(claims.sub).success ||
+      typeof claims.sessionId !== "string" ||
+      !z.string().uuid().safeParse(claims.sessionId).success
     ) {
       throw new Error("Invalid token claims");
     }
 
-    userId = Number(claims.sub);
+    userId = claims.sub;
     sessionId = claims.sessionId;
-
-    if (
-      !Number.isSafeInteger(userId) ||
-      userId <= 0 ||
-      !Number.isSafeInteger(sessionId) ||
-      sessionId <= 0
-    ) {
-      throw new Error("Invalid token claims");
-    }
   } catch {
     return next(new UnauthorizedError("Invalid access token"));
   }

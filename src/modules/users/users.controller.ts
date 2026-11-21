@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { UnauthorizedError } from "../../utils/errors";
 import { getProfile, updateProfile } from "./users.services";
 
-function authenticatedUserId(req: Request): number {
+function authenticatedUserId(req: Request): string {
   if (!req.user) throw new UnauthorizedError("Authentication is required");
   return req.user.id;
 }

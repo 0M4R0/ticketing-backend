@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -15,21 +16,23 @@ let baseUrl: string;
 let sessionsUrl: string;
 
 function createAuthenticatedSession(email: string) {
+  const userId = randomUUID();
   const inserted = db
     .prepare(
-      `INSERT INTO users (name, email, password_hash, role, status)
-       VALUES (?, ?, ?, 'user', 'active')`,
+      `INSERT INTO users (id, name, email, password_hash, role, status)
+       VALUES (?, ?, ?, ?, 'user', 'active')`,
     )
-    .run("Session Test", email, "test-password-hash");
-  const userId = Number(inserted.lastInsertRowid);
+    .run(userId, "Session Test", email, "test-password-hash");
+  const sessionId = randomUUID();
   const refreshTokenHash = `refresh-hash-${email}`;
   const session = db
     .prepare(
       `INSERT INTO user_sessions (
-         user_id, refresh_token_hash, ip_address, user_agent, device_name, expires_at
-       ) VALUES (?, ?, ?, ?, ?, ?)`,
+         id, user_id, refresh_token_hash, ip_address, user_agent, device_name, expires_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
+      sessionId,
       userId,
       refreshTokenHash,
       "127.0.0.1",
@@ -37,7 +40,6 @@ function createAuthenticatedSession(email: string) {
       "Test Device",
       new Date(Date.now() + 60 * 60_000).toISOString(),
     );
-  const sessionId = Number(session.lastInsertRowid);
   const token = createAccessToken({ id: userId, role: "user" }, sessionId);
   return {
     userId,
@@ -84,22 +86,23 @@ after(async () => {
 });
 
 test("authenticated users can read and update only their own profile", async () => {
+  const userId = randomUUID();
   const inserted = db
     .prepare(
-      `INSERT INTO users (name, email, password_hash, phone, role, status)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, name, email, password_hash, phone, role, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run("Before Name", "profile@example.com", "secret-hash", "111", "user", "active");
-  const userId = Number(inserted.lastInsertRowid);
+    .run(userId, "Before Name", "profile@example.com", "secret-hash", "111", "user", "active");
+  const sessionId = randomUUID();
   const session = db
     .prepare(
-      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at)
-       VALUES (?, ?, ?)`,
+      `INSERT INTO user_sessions (id, user_id, refresh_token_hash, expires_at)
+       VALUES (?, ?, ?, ?)`,
     )
-    .run(userId, "test-refresh-hash", new Date(Date.now() + 60_000).toISOString());
+    .run(sessionId, userId, "test-refresh-hash", new Date(Date.now() + 60_000).toISOString());
   const token = createAccessToken(
     { id: userId, role: "user" },
-    Number(session.lastInsertRowid),
+    sessionId,
   );
   const headers = { authorization: `Bearer ${token}` };
 
@@ -165,34 +168,39 @@ test("authenticated users can read and update only their own profile", async () 
 
 test("users can list only their active sessions with safe metadata", async () => {
   const current = createAuthenticatedSession("sessions-list@example.com");
+  const otherOwnSessionId = randomUUID();
   const otherOwnSession = db
     .prepare(
-      `INSERT INTO user_sessions (user_id, refresh_token_hash, device_name, expires_at)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO user_sessions (id, user_id, refresh_token_hash, device_name, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
     )
     .run(
+      otherOwnSessionId,
       current.userId,
       "second-private-refresh-hash",
       "Other Device",
       new Date(Date.now() + 60 * 60_000).toISOString(),
     );
   const other = createAuthenticatedSession("sessions-other@example.com");
+  const revokedId = randomUUID();
   const revoked = db
     .prepare(
-      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at, revoked_at)
-       VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+      `INSERT INTO user_sessions (id, user_id, refresh_token_hash, expires_at, revoked_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
     )
     .run(
+      revokedId,
       current.userId,
       "revoked-private-refresh-hash",
       new Date(Date.now() + 60 * 60_000).toISOString(),
     );
+  const expiredId = randomUUID();
   const expired = db
     .prepare(
-      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at)
-       VALUES (?, ?, ?)`,
+      `INSERT INTO user_sessions (id, user_id, refresh_token_hash, expires_at)
+       VALUES (?, ?, ?, ?)`,
     )
-    .run(current.userId, "expired-private-refresh-hash", "2000-01-01T00:00:00.000Z");
+    .run(expiredId, current.userId, "expired-private-refresh-hash", "2000-01-01T00:00:00.000Z");
 
   const response = await fetch(sessionsUrl, { headers: current.headers });
   assert.equal(response.status, 200);
@@ -202,13 +210,14 @@ test("users can list only their active sessions with safe metadata", async () =>
   assert.equal(payload.sessions.length, 2);
   const currentSession = payload.sessions.find((item) => item.id === current.sessionId);
   const otherSession = payload.sessions.find(
-    (item) => item.id === Number(otherOwnSession.lastInsertRowid),
+    (item) => item.id === otherOwnSessionId,
   );
   assert.equal(currentSession?.isCurrentDevice, true);
+  assert.match(String(currentSession?.id), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   assert.equal(otherSession?.isCurrentDevice, false);
   assert.equal(payload.sessions.some((item) => item.id === other.sessionId), false);
-  assert.equal(payload.sessions.some((item) => item.id === Number(revoked.lastInsertRowid)), false);
-  assert.equal(payload.sessions.some((item) => item.id === Number(expired.lastInsertRowid)), false);
+  assert.equal(payload.sessions.some((item) => item.id === revokedId), false);
+  assert.equal(payload.sessions.some((item) => item.id === expiredId), false);
   assert.equal(JSON.stringify(payload).includes("refreshToken"), false);
   assert.equal(JSON.stringify(payload).includes("refresh_token_hash"), false);
   assert.equal(JSON.stringify(payload).includes(current.refreshTokenHash), false);
@@ -219,17 +228,18 @@ test("users can list only their active sessions with safe metadata", async () =>
 
 test("users can revoke their own session and revoked access tokens are rejected", async () => {
   const current = createAuthenticatedSession("sessions-revoke@example.com");
+  const targetId = randomUUID();
   const target = db
     .prepare(
-      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at)
-       VALUES (?, ?, ?)`,
+      `INSERT INTO user_sessions (id, user_id, refresh_token_hash, expires_at)
+       VALUES (?, ?, ?, ?)`,
     )
     .run(
+      targetId,
       current.userId,
       "revoke-target-refresh-hash",
       new Date(Date.now() + 60 * 60_000).toISOString(),
     );
-  const targetId = Number(target.lastInsertRowid);
   const targetToken = createAccessToken({ id: current.userId, role: "user" }, targetId);
 
   const response = await fetch(`${sessionsUrl}/${targetId}`, {
@@ -260,19 +270,21 @@ test("users cannot revoke another user's session by guessing its ID", async () =
 
 test("users can revoke all their sessions including the current one", async () => {
   const current = createAuthenticatedSession("sessions-revoke-all@example.com");
+  const secondId = randomUUID();
   const second = db
     .prepare(
-      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at)
-       VALUES (?, ?, ?)`,
+      `INSERT INTO user_sessions (id, user_id, refresh_token_hash, expires_at)
+       VALUES (?, ?, ?, ?)`,
     )
     .run(
+      secondId,
       current.userId,
       "revoke-all-second-refresh-hash",
       new Date(Date.now() + 60 * 60_000).toISOString(),
     );
   const secondToken = createAccessToken(
     { id: current.userId, role: "user" },
-    Number(second.lastInsertRowid),
+    secondId,
   );
 
   const response = await fetch(sessionsUrl, {
