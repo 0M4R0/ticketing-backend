@@ -12,6 +12,41 @@ let createApp: typeof import("../src/app").createApp;
 let createAccessToken: typeof import("../src/modules/auth/auth.services").createAccessToken;
 let server: import("node:http").Server;
 let baseUrl: string;
+let sessionsUrl: string;
+
+function createAuthenticatedSession(email: string) {
+  const inserted = db
+    .prepare(
+      `INSERT INTO users (name, email, password_hash, role, status)
+       VALUES (?, ?, ?, 'user', 'active')`,
+    )
+    .run("Session Test", email, "test-password-hash");
+  const userId = Number(inserted.lastInsertRowid);
+  const refreshTokenHash = `refresh-hash-${email}`;
+  const session = db
+    .prepare(
+      `INSERT INTO user_sessions (
+         user_id, refresh_token_hash, ip_address, user_agent, device_name, expires_at
+       ) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      userId,
+      refreshTokenHash,
+      "127.0.0.1",
+      "Test Agent",
+      "Test Device",
+      new Date(Date.now() + 60 * 60_000).toISOString(),
+    );
+  const sessionId = Number(session.lastInsertRowid);
+  const token = createAccessToken({ id: userId, role: "user" }, sessionId);
+  return {
+    userId,
+    sessionId,
+    refreshTokenHash,
+    token,
+    headers: { authorization: `Bearer ${token}` },
+  };
+}
 
 before(async () => {
   process.env.NODE_ENV = "test";
@@ -37,6 +72,7 @@ before(async () => {
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   baseUrl = `http://127.0.0.1:${address.port}/api/v1/users/me`;
+  sessionsUrl = `${baseUrl}/sessions`;
 });
 
 after(async () => {
@@ -125,4 +161,135 @@ test("authenticated users can read and update only their own profile", async () 
 
   const unauthenticatedResponse = await fetch(baseUrl);
   assert.equal(unauthenticatedResponse.status, 401);
+});
+
+test("users can list only their active sessions with safe metadata", async () => {
+  const current = createAuthenticatedSession("sessions-list@example.com");
+  const otherOwnSession = db
+    .prepare(
+      `INSERT INTO user_sessions (user_id, refresh_token_hash, device_name, expires_at)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .run(
+      current.userId,
+      "second-private-refresh-hash",
+      "Other Device",
+      new Date(Date.now() + 60 * 60_000).toISOString(),
+    );
+  const other = createAuthenticatedSession("sessions-other@example.com");
+  const revoked = db
+    .prepare(
+      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at, revoked_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+    )
+    .run(
+      current.userId,
+      "revoked-private-refresh-hash",
+      new Date(Date.now() + 60 * 60_000).toISOString(),
+    );
+  const expired = db
+    .prepare(
+      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at)
+       VALUES (?, ?, ?)`,
+    )
+    .run(current.userId, "expired-private-refresh-hash", "2000-01-01T00:00:00.000Z");
+
+  const response = await fetch(sessionsUrl, { headers: current.headers });
+  assert.equal(response.status, 200);
+  const payload = (await response.json()) as {
+    sessions: Array<Record<string, unknown>>;
+  };
+  assert.equal(payload.sessions.length, 2);
+  const currentSession = payload.sessions.find((item) => item.id === current.sessionId);
+  const otherSession = payload.sessions.find(
+    (item) => item.id === Number(otherOwnSession.lastInsertRowid),
+  );
+  assert.equal(currentSession?.isCurrentDevice, true);
+  assert.equal(otherSession?.isCurrentDevice, false);
+  assert.equal(payload.sessions.some((item) => item.id === other.sessionId), false);
+  assert.equal(payload.sessions.some((item) => item.id === Number(revoked.lastInsertRowid)), false);
+  assert.equal(payload.sessions.some((item) => item.id === Number(expired.lastInsertRowid)), false);
+  assert.equal(JSON.stringify(payload).includes("refreshToken"), false);
+  assert.equal(JSON.stringify(payload).includes("refresh_token_hash"), false);
+  assert.equal(JSON.stringify(payload).includes(current.refreshTokenHash), false);
+  assert.equal(JSON.stringify(payload).includes("second-private-refresh-hash"), false);
+  assert.equal(Object.keys(currentSession ?? {}).includes("ipAddress"), true);
+  assert.equal(Object.keys(currentSession ?? {}).includes("deviceName"), true);
+});
+
+test("users can revoke their own session and revoked access tokens are rejected", async () => {
+  const current = createAuthenticatedSession("sessions-revoke@example.com");
+  const target = db
+    .prepare(
+      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at)
+       VALUES (?, ?, ?)`,
+    )
+    .run(
+      current.userId,
+      "revoke-target-refresh-hash",
+      new Date(Date.now() + 60 * 60_000).toISOString(),
+    );
+  const targetId = Number(target.lastInsertRowid);
+  const targetToken = createAccessToken({ id: current.userId, role: "user" }, targetId);
+
+  const response = await fetch(`${sessionsUrl}/${targetId}`, {
+    method: "DELETE",
+    headers: current.headers,
+  });
+  assert.equal(response.status, 204);
+  const rejected = await fetch(baseUrl, {
+    headers: { authorization: `Bearer ${targetToken}` },
+  });
+  assert.equal(rejected.status, 401);
+  const currentStillValid = await fetch(baseUrl, { headers: current.headers });
+  assert.equal(currentStillValid.status, 200);
+});
+
+test("users cannot revoke another user's session by guessing its ID", async () => {
+  const attacker = createAuthenticatedSession("sessions-attacker@example.com");
+  const victim = createAuthenticatedSession("sessions-victim@example.com");
+
+  const response = await fetch(`${sessionsUrl}/${victim.sessionId}`, {
+    method: "DELETE",
+    headers: attacker.headers,
+  });
+  assert.equal(response.status, 404);
+  const victimStillValid = await fetch(baseUrl, { headers: victim.headers });
+  assert.equal(victimStillValid.status, 200);
+});
+
+test("users can revoke all their sessions including the current one", async () => {
+  const current = createAuthenticatedSession("sessions-revoke-all@example.com");
+  const second = db
+    .prepare(
+      `INSERT INTO user_sessions (user_id, refresh_token_hash, expires_at)
+       VALUES (?, ?, ?)`,
+    )
+    .run(
+      current.userId,
+      "revoke-all-second-refresh-hash",
+      new Date(Date.now() + 60 * 60_000).toISOString(),
+    );
+  const secondToken = createAccessToken(
+    { id: current.userId, role: "user" },
+    Number(second.lastInsertRowid),
+  );
+
+  const response = await fetch(sessionsUrl, {
+    method: "DELETE",
+    headers: current.headers,
+  });
+  assert.equal(response.status, 204);
+  assert.equal(
+    (
+      await fetch(baseUrl, { headers: current.headers })
+    ).status,
+    401,
+  );
+  assert.equal(
+    (
+      await fetch(baseUrl, { headers: { authorization: `Bearer ${secondToken}` } })
+    ).status,
+    401,
+  );
 });

@@ -209,6 +209,62 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /users/me/sessions:
+    get:
+      tags: [Users]
+      summary: List the authenticated user's active sessions
+      operationId: listMySessions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Active sessions retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UserSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Users]
+      summary: Revoke all of the authenticated user's sessions
+      operationId: revokeAllMySessions
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: All sessions revoked, including the current session
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /users/me/sessions/{sessionId}:
+    delete:
+      tags: [Users]
+      summary: Revoke one of the authenticated user's sessions
+      operationId: revokeMySession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "204":
+          description: Session revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Session not found
+
 components:
   securitySchemes:
     bearerAuth:
@@ -220,6 +276,37 @@ components:
       name: refresh_token
 
   schemas:
+    UserSession:
+      type: object
+      required:
+        - id
+        - ipAddress
+        - userAgent
+        - deviceName
+        - createdAt
+        - lastUsedAt
+        - expiresAt
+        - isCurrentDevice
+      properties:
+        id:
+          type: integer
+        ipAddress:
+          type: [string, "null"]
+        userAgent:
+          type: [string, "null"]
+        deviceName:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: [string, "null"]
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        isCurrentDevice:
+          type: boolean
     RegisterInput:
       type: object
       required: [name, email, password]
