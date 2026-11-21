@@ -9,6 +9,84 @@ type Profile = {
   createdAt: string;
 };
 
+type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  bannedAt: string | null;
+  banReason: string | null;
+};
+
+function findAdminUser(userId: string): AdminUser | undefined {
+  const row = db
+    .prepare(
+      `
+    SELECT id, name, email, role, status, banned_at, ban_reason
+    FROM users
+    WHERE id = ? AND deleted_at IS NULL
+  `,
+    )
+    .get(userId) as
+    | {
+        id: string;
+        name: string;
+        email: string;
+        role: string;
+        status: string;
+        banned_at: string | null;
+        ban_reason: string | null;
+      }
+    | undefined;
+  return (
+    row && {
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      status: row.status,
+      bannedAt: row.banned_at,
+      banReason: row.ban_reason,
+    }
+  );
+}
+
+export function banUser(userId: string, reason?: string): AdminUser {
+  const ban = db.transaction(() => {
+    const exists = db
+      .prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
+      .get(userId);
+    if (!exists) throw new NotFoundError("User not found");
+    const bannedAt = new Date().toISOString();
+    db.prepare(
+      "UPDATE users SET status = 'banned', banned_at = ?, ban_reason = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+    ).run(bannedAt, reason ?? null, bannedAt, userId);
+    db.prepare(
+      "UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+    ).run(bannedAt, userId);
+  });
+  ban();
+  const user = findAdminUser(userId);
+  if (!user) throw new NotFoundError("User not found");
+  return user;
+}
+
+export function unbanUser(userId: string): AdminUser {
+  const result = db
+    .prepare(
+      `
+    UPDATE users SET status = 'active', banned_at = NULL, ban_reason = NULL, updated_at = ?
+    WHERE id = ? AND deleted_at IS NULL
+  `,
+    )
+    .run(new Date().toISOString(), userId);
+  if (!result.changes) throw new NotFoundError("User not found");
+  const user = findAdminUser(userId);
+  if (!user) throw new NotFoundError("User not found");
+  return user;
+}
+
 function findProfile(userId: string): Profile | undefined {
   const row = db
     .prepare(

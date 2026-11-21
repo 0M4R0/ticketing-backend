@@ -15,14 +15,14 @@ let server: import("node:http").Server;
 let baseUrl: string;
 let sessionsUrl: string;
 
-function createAuthenticatedSession(email: string) {
+function createAuthenticatedSession(email: string, role: "user" | "admin" = "user") {
   const userId = randomUUID();
   const inserted = db
     .prepare(
       `INSERT INTO users (id, name, email, password_hash, role, status)
-       VALUES (?, ?, ?, ?, 'user', 'active')`,
+       VALUES (?, ?, ?, ?, ?, 'active')`,
     )
-    .run(userId, "Session Test", email, "test-password-hash");
+    .run(userId, "Session Test", email, "test-password-hash", role);
   const sessionId = randomUUID();
   const refreshTokenHash = `refresh-hash-${email}`;
   const session = db
@@ -40,7 +40,7 @@ function createAuthenticatedSession(email: string) {
       "Test Device",
       new Date(Date.now() + 60 * 60_000).toISOString(),
     );
-  const token = createAccessToken({ id: userId, role: "user" }, sessionId);
+  const token = createAccessToken({ id: userId, role }, sessionId);
   return {
     userId,
     sessionId,
@@ -304,4 +304,59 @@ test("users can revoke all their sessions including the current one", async () =
     ).status,
     401,
   );
+});
+
+test("administrators can ban users, revoke all sessions, and immediately invalidate access tokens", async () => {
+  const admin = createAuthenticatedSession("admin-ban@example.com", "admin");
+  const target = createAuthenticatedSession("target-ban@example.com");
+  const extraSessionId = randomUUID();
+  db.prepare(`INSERT INTO user_sessions (id, user_id, refresh_token_hash, expires_at)
+    VALUES (?, ?, ?, ?)`)
+    .run(extraSessionId, target.userId, "ban-second-session", new Date(Date.now() + 60_000).toISOString());
+  const extraToken = createAccessToken({ id: target.userId, role: "user" }, extraSessionId);
+
+  const response = await fetch(`${baseUrl.replace(/\/me$/, "")}/${target.userId}/ban`, {
+    method: "POST",
+    headers: { ...admin.headers, "content-type": "application/json" },
+    body: JSON.stringify({ reason: "Policy violation" }),
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json() as { user: Record<string, unknown> };
+  assert.equal(payload.user.status, "banned");
+  assert.equal(payload.user.banReason, "Policy violation");
+  assert.equal("password_hash" in payload.user, false);
+  assert.equal(JSON.stringify(payload).includes("password_hash"), false);
+  const sessions = db.prepare("SELECT revoked_at FROM user_sessions WHERE user_id = ?").all(target.userId) as Array<{ revoked_at: string | null }>;
+  assert.equal(sessions.length, 2);
+  assert.ok(sessions.every((session) => session.revoked_at));
+  assert.equal((await fetch(baseUrl, { headers: target.headers })).status, 401);
+  assert.equal((await fetch(baseUrl, { headers: { authorization: `Bearer ${extraToken}` } })).status, 401);
+});
+
+test("administrators can unban users without restoring revoked sessions", async () => {
+  const admin = createAuthenticatedSession("admin-unban@example.com", "admin");
+  const target = createAuthenticatedSession("target-unban@example.com");
+  const banResponse = await fetch(`${baseUrl.replace(/\/me$/, "")}/${target.userId}/ban`, {
+    method: "POST", headers: admin.headers,
+  });
+  assert.equal(banResponse.status, 200);
+  const unbanResponse = await fetch(`${baseUrl.replace(/\/me$/, "")}/${target.userId}/unban`, {
+    method: "POST", headers: admin.headers,
+  });
+  assert.equal(unbanResponse.status, 200);
+  const payload = await unbanResponse.json() as { user: Record<string, unknown> };
+  assert.equal(payload.user.status, "active");
+  assert.equal(payload.user.bannedAt, null);
+  assert.equal(payload.user.banReason, null);
+  const session = db.prepare("SELECT revoked_at FROM user_sessions WHERE id = ?").get(target.sessionId) as { revoked_at: string | null };
+  assert.ok(session.revoked_at);
+  assert.equal((await fetch(baseUrl, { headers: target.headers })).status, 401);
+});
+
+test("normal users cannot ban or unban users", async () => {
+  const caller = createAuthenticatedSession("ordinary-ban@example.com");
+  const target = createAuthenticatedSession("ordinary-target@example.com");
+  const root = baseUrl.replace(/\/me$/, "");
+  assert.equal((await fetch(`${root}/${target.userId}/ban`, { method: "POST", headers: caller.headers })).status, 403);
+  assert.equal((await fetch(`${root}/${target.userId}/unban`, { method: "POST", headers: caller.headers })).status, 403);
 });

@@ -12,6 +12,7 @@ tags:
   - name: Health
   - name: Authentication
   - name: Users
+  - name: Admin
 
 paths:
   /health:
@@ -208,6 +209,64 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /users/{userId}/ban:
+    post:
+      tags: [Admin]
+      summary: Ban a user and revoke all of their sessions
+      operationId: banUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 1000
+      responses:
+        "200":
+          description: User banned and all active sessions revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Administrator role required
+        "404":
+          description: User not found
+
+  /users/{userId}/unban:
+    post:
+      tags: [Admin]
+      summary: Unban a user
+      operationId: unbanUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: User restored to active status; revoked sessions remain revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Administrator role required
+        "404":
+          description: User not found
 
   /users/me/sessions:
     get:

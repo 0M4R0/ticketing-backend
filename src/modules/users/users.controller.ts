@@ -1,6 +1,11 @@
 import type { Request, Response } from "express";
 import { UnauthorizedError } from "../../utils/errors";
-import { getProfile, updateProfile } from "./users.services";
+import {
+  getProfile,
+  updateProfile,
+  banUser,
+  unbanUser,
+} from "./users.services";
 
 function authenticatedUserId(req: Request): string {
   if (!req.user) throw new UnauthorizedError("Authentication is required");
@@ -13,4 +18,12 @@ export function getCurrentUserController(req: Request, res: Response): void {
 
 export function updateCurrentUserController(req: Request, res: Response): void {
   res.json({ user: updateProfile(authenticatedUserId(req), req.body) });
+}
+
+export function banUserController(req: Request, res: Response): void {
+  res.json({ user: banUser(req.params.userId as string, req.body?.reason) });
+}
+
+export function unbanUserController(req: Request, res: Response): void {
+  res.json({ user: unbanUser(req.params.userId as string) });
 }
