@@ -11,6 +11,8 @@ servers:
 tags:
   - name: Health
   - name: Authentication
+  - name: Users
+  - name: Admin
 
 paths:
   /health:
@@ -52,7 +54,7 @@ paths:
                 required: [user]
                 properties:
                   user:
-                    $ref: "#/components/schemas/User"
+                    $ref: "#/components/schemas/RegisteredUser"
         "400":
           $ref: "#/components/responses/BadRequest"
         "409":
@@ -160,14 +162,211 @@ paths:
               example:
                 error: Too many logout attempts, please try again later.
 
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get the authenticated user's profile
+      operationId: getMyProfile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Profile retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Users]
+      summary: Update the authenticated user's name or phone
+      operationId: updateMyProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileInput"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/Profile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /users/{userId}/ban:
+    post:
+      tags: [Admin]
+      summary: Ban a user and revoke all of their sessions
+      operationId: banUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 1000
+      responses:
+        "200":
+          description: User banned and all active sessions revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Administrator role required
+        "404":
+          description: User not found
+
+  /users/{userId}/unban:
+    post:
+      tags: [Admin]
+      summary: Unban a user
+      operationId: unbanUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: User restored to active status; revoked sessions remain revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Administrator role required
+        "404":
+          description: User not found
+
+  /users/me/sessions:
+    get:
+      tags: [Users]
+      summary: List the authenticated user's active sessions
+      operationId: listMySessions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Active sessions retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UserSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Users]
+      summary: Revoke all of the authenticated user's sessions
+      operationId: revokeAllMySessions
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: All sessions revoked, including the current session
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /users/me/sessions/{sessionId}:
+    delete:
+      tags: [Users]
+      summary: Revoke one of the authenticated user's sessions
+      operationId: revokeMySession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Session revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Session not found
+
 components:
   securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
     refreshCookie:
       type: apiKey
       in: cookie
       name: refresh_token
 
   schemas:
+    UserSession:
+      type: object
+      required:
+        - id
+        - ipAddress
+        - userAgent
+        - deviceName
+        - createdAt
+        - lastUsedAt
+        - expiresAt
+        - isCurrentDevice
+      properties:
+        id:
+          type: string
+          format: uuid
+        ipAddress:
+          type: [string, "null"]
+        userAgent:
+          type: [string, "null"]
+        deviceName:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: [string, "null"]
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        isCurrentDevice:
+          type: boolean
     RegisterInput:
       type: object
       required: [name, email, password]
@@ -213,6 +412,46 @@ components:
         email:
           type: string
           format: email
+
+    RegisteredUser:
+      type: object
+      required: [id, name, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+
+    Profile:
+      type: object
+      required: [name, email, createdAt]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    UpdateProfileInput:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        phone:
+          type: [string, "null"]
+          maxLength: 30
 
     Error:
       type: object
