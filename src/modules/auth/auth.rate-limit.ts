@@ -1,49 +1,47 @@
-import { rateLimit } from "express-rate-limit";
+import { rateLimit, ipKeyGenerator } from "express-rate-limit";
+import type { Request } from "express";
 
-export const registerLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 5,
+const ipKey = (req: Request): string => ipKeyGenerator(req.ip ?? "unknown");
 
-  standardHeaders: true,
-  legacyHeaders: false,
+function createLimiter(
+  windowMs: number,
+  limit: number,
+  message: string,
+  keyGenerator: (req: Request) => string = ipKey, // default = IP
+) {
+  return rateLimit({
+    windowMs,
+    limit,
+    keyGenerator,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: message },
+  });
+}
 
-  message: {
-    error: "Too many registration attempts, please try again later.",
-  },
-});
+const minute = 60 * 1000;
+const quarterHour = 15 * minute;
 
-export const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 5,
+export const registerLimiter = createLimiter(
+  quarterHour,
+  5,
+  "Too many registration attempts, please try again later.",
+);
 
-  standardHeaders: true,
-  legacyHeaders: false,
+export const loginLimiter = createLimiter(
+  quarterHour,
+  5,
+  "Too many login attempts, please try again later.",
+);
 
-  message: {
-    error: "Too many login attempts, please try again later.",
-  },
-});
+export const refreshLimiter = createLimiter(
+  quarterHour,
+  30, // or whatever you want
+  "Too many refresh attempts, please try again later.",
+);
 
-export const refreshLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 30,
-
-  standardHeaders: true,
-  legacyHeaders: false,
-
-  message: {
-    error: "Too many refresh attempts, please try again later.",
-  },
-});
-
-export const logoutLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-
-  standardHeaders: true,
-  legacyHeaders: false,
-
-  message: {
-    error: "Too many logout attempts, please try again later.",
-  },
-});
+export const logoutLimiter = createLimiter(
+  quarterHour,
+  10,
+  "Too many logout attempts, please try again later.",
+);

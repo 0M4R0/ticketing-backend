@@ -15,13 +15,30 @@ import {
   revokeCurrentUserSessionController,
 } from "./sessions/sessions.controller";
 import { updateProfileSchema } from "./users.schema";
+import {
+  usersIpLimit,
+  banUserLimit,
+  getCurrentUserLimit,
+  getCurrentUserSessionsLimit,
+  revokeAllCurrentUserSessionsLimit,
+  revokeCurrentUserSessionLimit,
+  unbanUserLimit,
+  updateCurrentUserLimit,
+} from "./user.rate-limit";
 
 const router = Router();
 
+// 1. IP protection for the whole router (catches bad/expired tokens too)
+router.use(usersIpLimit);
+
+// 2. Auth required for everything below
 router.use(requireAuth);
+
+// Admin actions
 router.post(
   "/:userId/ban",
   requireRole("admin"),
+  banUserLimit,
   validate(
     z.object({
       params: z.object({ userId: z.uuid() }),
@@ -32,22 +49,41 @@ router.post(
   ),
   banUserController,
 );
+
 router.post(
   "/:userId/unban",
   requireRole("admin"),
+  unbanUserLimit,
   validate(z.object({ params: z.object({ userId: z.uuid() }) })),
   unbanUserController,
 );
-router.get("/me", getCurrentUserController);
+
+// /me
+router.get("/me", getCurrentUserLimit, getCurrentUserController);
+
 router.patch(
   "/me",
+  updateCurrentUserLimit,
   validate(z.object({ body: updateProfileSchema })),
   updateCurrentUserController,
 );
-router.get("/me/sessions", getCurrentUserSessionsController);
-router.delete("/me/sessions", revokeAllCurrentUserSessionsController);
+
+// /me/sessions
+router.get(
+  "/me/sessions",
+  getCurrentUserSessionsLimit,
+  getCurrentUserSessionsController,
+);
+
+router.delete(
+  "/me/sessions",
+  revokeAllCurrentUserSessionsLimit,
+  revokeAllCurrentUserSessionsController,
+);
+
 router.delete(
   "/me/sessions/:sessionId",
+  revokeCurrentUserSessionLimit,
   validate(
     z.object({
       params: z.object({ sessionId: z.uuid() }),
